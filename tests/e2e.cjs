@@ -136,6 +136,34 @@ const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); c
   const emptyBubbles = await page.$$eval(".message.assistant .message-bubble", bs => bs.filter(b => !b.textContent.trim()).length);
   check("no empty reply bubbles after stop", emptyBubbles === 0, `${emptyBubbles} empty`);
 
+  // Ask about this page: attach the active tab's text, trimmed to fit
+  await ctx.route("http://article.test/**", r => r.fulfill({ contentType: "text/html", body: `<title>Pharos facts</title><p>The Pharos of Alexandria was 100 metres tall.</p><p>${"filler ".repeat(4000)}</p>` }));
+  const article = await ctx.newPage();
+  await article.goto("http://article.test/");
+  await article.bringToFront();
+  await page.click("#pageBtn");
+  await page.waitForSelector("#pageChip:not(.hidden)", { timeout: 5000 }).catch(() => {});
+  const chip = await page.textContent("#pageChipText");
+  check("Page button attaches the active tab", chip.includes("Pharos facts"), chip);
+  check("long page is trimmed and says how much is sent", /first \d+%/.test(chip), chip);
+  await page.press("#promptInput", "Enter"); // empty prompt + page = summarize
+  await page.waitForTimeout(300);
+  await waitForReply();
+  const pPage = chatRequests[chatRequests.length - 1].messages.at(-1).content;
+  check("page text reaches the model with a summarize prompt", pPage.includes("Pharos of Alexandria") && pPage.endsWith("Summarize this page.") && pPage.length < 17000, `${pPage.length} chars`);
+  check("sent message shows the page title", (await page.textContent(".message.user:nth-last-child(2) .message-page")).includes("Pharos facts"));
+  check("page detaches after sending", !(await page.isVisible("#pageChip")));
+  await article.close();
+
+  // Right-click "Ask LocalMind": background.js queues the selection in session storage
+  const winId = await page.evaluate(async () => (await chrome.windows.getCurrent()).id);
+  await sw.evaluate((windowId) => chrome.storage.session.set({ pendingAsk: { action: "explain", text: "photosynthesis", windowId } }), winId);
+  await page.waitForTimeout(300);
+  await waitForReply();
+  const pAsk = chatRequests[chatRequests.length - 1].messages.at(-1).content;
+  check("right-click Ask sends the selection with its action", pAsk === "Explain this:\n\nphotosynthesis", JSON.stringify(pAsk));
+  check("right-click request is cleared after sending", !(await sw.evaluate(() => chrome.storage.session.get("pendingAsk"))).pendingAsk);
+
   // New chat: About You carries over, per-chat facts don't
   await page.click("#newChatBtn");
   await page.waitForTimeout(200);

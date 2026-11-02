@@ -51,6 +51,17 @@ You install the extension from a **folder**. You don't upload anything to the Ch
 - Click **Stop** to end a reply early. The part already written is kept.
 - The model remembers the conversation: every new message is sent along with the earlier messages of the same chat, like ChatGPT.
 
+### Ask about a web page
+
+- Click **📄 Page** to attach the text of the tab you're viewing to your next message. A bar above the input box shows the page title and how much of it will be sent. Long pages are cut to about 16,000 characters (roughly 4,000 tokens) so they fit the model's context.
+- Type a question and send, or send with the box empty to get a summary. Click **✕** on the bar to drop the page.
+- The page stays part of that chat, so you can ask follow-up questions about it.
+- Chrome's own pages (`chrome://`), the Chrome Web Store and PDFs can't be read.
+
+### Right-click selected text
+
+Select text on any page, right-click and choose **Ask LocalMind**, then **Explain**, **Translate to English**, **Fix grammar** or **Summarize**. The side panel opens and sends the request to your current chat.
+
 ### Chat sessions
 
 - **+ New** starts a fresh chat with no history.

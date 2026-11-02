@@ -4,6 +4,12 @@ All notable changes to LocalMind are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- **📄 Page** button: attach the active tab's text to the next message (cut to ~16,000 characters, with a bar showing how much is sent). Sending with an empty box summarizes the page.
+- Right-click **Ask LocalMind** on selected text: Explain, Translate to English, Fix grammar, Summarize.
+- New permissions: `scripting` (read the tab's text when asked) and `contextMenus` (right-click menu).
+
 ## [1.0.0] - 2026-11-02
 
 First public release.

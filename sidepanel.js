@@ -20,8 +20,20 @@ const DEFAULT_SETTINGS = {
   maxHistory: 20
 };
 
+// ~4k tokens: half of the 8192 num_ctx, leaving room for history and the reply
+const PAGE_CHAR_LIMIT = 16000;
+
+// Right-click menu actions from background.js
+const ASK_PROMPTS = {
+  explain: "Explain this:",
+  translate: "Translate this to English:",
+  fix: "Fix the grammar and spelling. Reply with only the corrected text:",
+  summarize: "Summarize this:"
+};
+
 // Global Extension State
 let state = {
+  page: null, // tab text attached to the next message: { title, url, text, total }
   settings: { ...DEFAULT_SETTINGS },
   sessions: [],
   currentSessionId: null,
@@ -75,7 +87,11 @@ const el = {
   rawContextDisplay: document.getElementById("rawContextDisplay"),
   downloadJsonBtn: document.getElementById("downloadJsonBtn"),
   downloadMdBtn: document.getElementById("downloadMdBtn"),
-  copyContextBtn: document.getElementById("copyContextBtn")
+  copyContextBtn: document.getElementById("copyContextBtn"),
+  pageBtn: document.getElementById("pageBtn"),
+  pageChip: document.getElementById("pageChip"),
+  pageChipText: document.getElementById("pageChipText"),
+  removePageBtn: document.getElementById("removePageBtn")
 };
 
 // Initialize
@@ -85,7 +101,53 @@ document.addEventListener("DOMContentLoaded", async () => {
   setupEventListeners();
   await refreshModels();
   renderCurrentSession();
+  chrome.storage.session.onChanged.addListener((changes) => {
+    if (changes.pendingAsk?.newValue) takePendingAsk();
+  });
+  takePendingAsk(); // a right-click that opened this panel
 });
+
+// Send text the user right-clicked in a page (queued by background.js) if it was meant for this window
+async function takePendingAsk() {
+  const { pendingAsk } = await chrome.storage.session.get("pendingAsk");
+  if (!pendingAsk || pendingAsk.windowId !== (await chrome.windows.getCurrent()).id) return;
+  await chrome.storage.session.remove("pendingAsk");
+  el.promptInput.value = `${ASK_PROMPTS[pendingAsk.action] || ""}\n\n${pendingAsk.text}`.trim();
+  handleSendMessage(); // no-op while a reply is streaming; the text stays in the box
+}
+
+// Read the active tab's visible text and attach it to the next message
+async function attachPage() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [{ result }] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => document.body?.innerText || "" });
+    const text = result.replace(/\n{3,}/g, "\n\n").trim();
+    if (!text) throw new Error("The page has no text.");
+    state.page = { title: tab.title || tab.url, url: tab.url, text: text.slice(0, PAGE_CHAR_LIMIT), total: text.length };
+  } catch (err) {
+    alert(`Couldn't read this tab. Chrome pages, the Web Store and PDFs can't be read.\n\n${err.message}`);
+  }
+  renderPageChip();
+}
+
+function renderPageChip() {
+  const p = state.page;
+  el.pageChip.classList.toggle("hidden", !p);
+  if (p) {
+    const size = p.text.length < p.total
+      ? `first ${Math.round(p.text.length / p.total * 100)}% (${p.text.length.toLocaleString()} of ${p.total.toLocaleString()} chars)`
+      : `${p.total.toLocaleString()} chars`;
+    el.pageChipText.textContent = `📄 ${p.title} · ${size}`;
+    el.pageChipText.title = p.url;
+  }
+  updateContextStats();
+}
+
+// What the model sees for a user message that has a page attached
+function withPage(m) {
+  if (!m.page) return m.content;
+  return `[Web page: ${m.page.title} (${m.page.url})]\n${m.page.text}\n[End of web page]\n\n${m.content}`;
+}
 
 // Load Settings
 async function loadSettings() {
@@ -380,7 +442,7 @@ function buildChatPayload(session) {
   for (const m of recentHistory) {
     // Skip the in-flight assistant placeholder and failed replies
     if (!m.content || m.error) continue;
-    messagesToSend.push({ role: m.role, content: m.content });
+    messagesToSend.push({ role: m.role, content: withPage(m) });
   }
 
   return messagesToSend;
@@ -389,7 +451,7 @@ function buildChatPayload(session) {
 // Chat Send & Live Streaming
 async function handleSendMessage(e) {
   if (e) e.preventDefault();
-  const prompt = el.promptInput.value.trim();
+  const prompt = el.promptInput.value.trim() || (state.page ? "Summarize this page." : "");
   if (!prompt || state.isStreaming) return;
 
   const session = getCurrentSession();
@@ -401,6 +463,11 @@ async function handleSendMessage(e) {
   }
 
   const userMessage = { role: "user", content: prompt, timestamp: new Date().toISOString() };
+  if (state.page) {
+    userMessage.page = state.page; // stays in history, so follow-up questions still see it
+    state.page = null;
+    renderPageChip();
+  }
   session.messages.push(userMessage);
 
   if (session.messages.length === 1) {
@@ -532,7 +599,7 @@ function renderMessages() {
     const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     let body, label;
     if (msg.role === "user") {
-      body = escapeHtml(msg.content);
+      body = (msg.page ? `<div class="message-page" title="${escapeHtml(msg.page.url)}">📄 ${escapeHtml(msg.page.title)}</div>` : "") + escapeHtml(msg.content);
       label = msg.error ? "Not sent" : "";
     } else if (msg.error) {
       body = `<strong>Couldn't get a reply.</strong> ${escapeHtml(msg.content)}`;
@@ -634,7 +701,7 @@ function updateContextStats() {
   // Count what the model will actually receive, not every bubble on screen
   const sent = buildChatPayload(session);
   const count = sent.filter(m => m.role !== "system").length;
-  const charCount = sent.reduce((acc, m) => acc + m.content.length, 0);
+  const charCount = sent.reduce((acc, m) => acc + m.content.length, 0) + (state.page ? state.page.text.length : 0);
   const approxTokens = Math.round(charCount / 4);
   el.tokenCounter.textContent = `~${approxTokens} tokens · ${count} msg${count === 1 ? "" : "s"} in context`;
   el.tokenCounter.title = "Messages and estimated tokens sent to the model with your next message (includes system prompt and memory facts)";
@@ -726,6 +793,11 @@ function setupEventListeners() {
   });
 
   el.chatForm.addEventListener("submit", handleSendMessage);
+  el.pageBtn.addEventListener("click", attachPage);
+  el.removePageBtn.addEventListener("click", () => {
+    state.page = null;
+    renderPageChip();
+  });
   el.stopBtn.addEventListener("click", stopStreaming);
 
   el.openSettingsBtn.addEventListener("click", () => {

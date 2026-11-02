@@ -607,6 +607,57 @@ select:focus {
 .token-counter {
   font-size: 10px;
   color: var(--text-muted);
+  margin-right: auto;
+}
+.form-actions {
+  gap: 6px;
+}
+.page-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.page-btn:hover {
+  border-color: var(--accent);
+  color: var(--text-main);
+}
+.page-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+.page-chip span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-chip button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.page-chip button:hover {
+  color: var(--text-main);
+}
+.message-page {
+  font-size: 10.5px;
+  opacity: 0.8;
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
 }
 .send-btn {
   background: var(--accent);
