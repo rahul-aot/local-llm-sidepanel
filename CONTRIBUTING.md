@@ -65,6 +65,15 @@ When you change behaviour, add or update a `check(...)` in the test. If you chan
 
 ## Releasing (maintainers)
 
-1. Bump `version` in `manifest.json` and `package.json`.
-2. Move the **Unreleased** changelog entries under the new version and date.
-3. Run `npm test`, tag `vX.Y.Z`, and attach `dist/localmind.zip` to the GitHub release.
+1. Bump `version` in `manifest.json` and `package.json` (they must match).
+2. Move the **Unreleased** changelog entries under `## [X.Y.Z] - YYYY-MM-DD`.
+3. Commit, then tag and push:
+
+   ```sh
+   git tag vX.Y.Z
+   git push origin main vX.Y.Z
+   ```
+
+The [Release workflow](.github/workflows/release.yml) then checks that the tag matches both versions and runs the tests. It publishes a GitHub Release named `LocalMind vX.Y.Z` with `localmind-vX.Y.Z.zip` attached, using that version's changelog section plus install steps as the notes. To rebuild an existing release, run the workflow from the **Actions** tab and enter the tag.
+
+Every push to `main` also produces the zip as a CI artifact (kept 14 days), for testing builds between releases.
