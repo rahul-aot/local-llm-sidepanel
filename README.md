@@ -65,7 +65,7 @@ Click the **Settings** (⚙️) icon in the top header to configure:
 If accessing Ollama hosted on another machine, make sure the Ollama service allows web requests:
 ```bash
 # On the machine hosting Ollama:
-OLLAMA_ORIGINS="*" ollama serve
+OLLAMA_HOST=0.0.0.0 OLLAMA_ORIGINS="chrome-extension://*" ollama serve
 ```
 
 ---

@@ -2,18 +2,16 @@
   "manifest_version": 3,
   "name": "LocalMind - Local LLM Side Panel",
   "version": "1.0.0",
-  "description": "Browser Side Panel extension to chat with local LLMs (Ollama / LM Studio), persistent session memory miner, and full context exporter.",
+  "description": "Chat with Ollama models on your computer or local network from Chrome's side panel. Private: nothing goes to the cloud.",
+  "homepage_url": "https://github.com/rahul-aot/local-llm-sidepanel",
   "permissions": [
     "sidePanel",
     "storage",
-    "tabs"
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
-    "http://localhost/*",
-    "http://127.0.0.1/*",
-    "http://192.168.*/*",
-    "http://10.*/*",
-    "*://*/*"
+    "http://*/*",
+    "https://*/*"
   ],
   "action": {
     "default_title": "Open LocalMind Side Panel"

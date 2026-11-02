@@ -49,6 +49,9 @@
           <h3>Chat Sessions</h3>
           <button id="closeSidebarBtn" class="close-btn">&times;</button>
         </div>
+        <div class="session-search">
+          <input type="search" id="sessionSearch" placeholder="Search chats…" aria-label="Search chats">
+        </div>
         <div id="sessionList" class="session-list"></div>
         <div class="sidebar-footer">
           <button id="clearAllHistoryBtn" class="btn text-danger">Clear All History</button>
@@ -105,13 +108,32 @@
         <div class="modal-body">
           <label>
             <span>Ollama / Local LLM Base URL</span>
-            <input type="text" id="settingBaseUrl" placeholder="http://192.168.0.13:11434" value="http://192.168.0.13:11434">
-            <small>Default from your ask_llm.py is <code>http://192.168.0.13:11434</code> (or <code>http://127.0.0.1:11434</code>).</small>
+            <input type="text" id="settingBaseUrl" placeholder="http://localhost:11434" value="http://localhost:11434">
+            <small>Use <code>http://localhost:11434</code> for Ollama on this computer, or the server's address on your network, e.g. <code>http://192.168.1.50:11434</code>.</small>
           </label>
 
           <label>
             <span>System Prompt / Assistant Persona</span>
             <textarea id="settingSystemPrompt" rows="3" placeholder="You are a helpful AI assistant."></textarea>
+          </label>
+
+          <label>
+            <span>About You (shared with every chat)</span>
+            <textarea id="settingProfile" rows="6" placeholder="Your name, role, projects, preferences… or paste what ChatGPT remembers about you."></textarea>
+            <small>To bring over what another AI (ChatGPT, Claude, Gemini…) knows about you, copy this prompt, send it there, and paste the answer here. Keep it short: it's sent with every message and uses context space.</small>
+            <div class="profile-prompt">
+              <pre id="profilePromptText">Summarise everything you know about me from your memory, my custom instructions and our past conversations, so another AI assistant can help me the same way you do.
+
+Use short bullet points under these headings:
+- About me (name, role, where I work)
+- Work and projects
+- Skills and tools I use
+- How I like answers (tone, length, format)
+- Current goals
+
+Only include facts you're confident about. Leave out passwords, API keys and other secrets. Keep it under 300 words.</pre>
+              <button type="button" id="copyProfilePromptBtn" class="btn secondary-btn">📋 Copy prompt</button>
+            </div>
           </label>
 
           <label>
@@ -127,6 +149,25 @@
             <input type="number" id="settingMaxHistory" min="2" max="100" value="20">
             <small>Controls how many previous turns are sent to the local model.</small>
           </label>
+
+          <label>
+            <span>Theme</span>
+            <select id="settingTheme">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="system">Match system</option>
+            </select>
+          </label>
+
+          <div class="models-manager">
+            <span>Models on Server</span>
+            <ul id="modelList" class="model-list"></ul>
+            <div class="model-add">
+              <input type="text" id="pullModelInput" placeholder="e.g. llama3.2 or qwen2.5:7b" aria-label="Model to download">
+              <button type="button" id="pullModelBtn" class="btn primary-btn">Download</button>
+            </div>
+            <small id="pullStatus" aria-live="polite">Find model names at ollama.com/library. Downloads run on the server and can be several GB.</small>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn secondary-btn" data-close="settingsModal">Cancel</button>

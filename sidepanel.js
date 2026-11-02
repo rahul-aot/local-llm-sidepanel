@@ -12,8 +12,10 @@ const STORAGE_KEYS = {
 
 // Default Settings
 const DEFAULT_SETTINGS = {
-  baseUrl: "http://192.168.0.13:11434",
+  baseUrl: "http://localhost:11434",
   systemPrompt: "You are a concise, helpful local AI assistant. Keep responses clear and structured.",
+  profile: "",
+  theme: "light",
   contextMiner: true,
   maxHistory: 20
 };
@@ -39,6 +41,7 @@ const el = {
   sidebar: document.getElementById("sidebar"),
   closeSidebarBtn: document.getElementById("closeSidebarBtn"),
   sessionList: document.getElementById("sessionList"),
+  sessionSearch: document.getElementById("sessionSearch"),
   clearAllHistoryBtn: document.getElementById("clearAllHistoryBtn"),
   messagesArea: document.getElementById("messagesArea"),
   welcomeCard: document.getElementById("welcomeCard"),
@@ -54,6 +57,12 @@ const el = {
   settingsModal: document.getElementById("settingsModal"),
   settingBaseUrl: document.getElementById("settingBaseUrl"),
   settingSystemPrompt: document.getElementById("settingSystemPrompt"),
+  settingProfile: document.getElementById("settingProfile"),
+  settingTheme: document.getElementById("settingTheme"),
+  modelList: document.getElementById("modelList"),
+  pullModelInput: document.getElementById("pullModelInput"),
+  pullModelBtn: document.getElementById("pullModelBtn"),
+  pullStatus: document.getElementById("pullStatus"),
   settingContextMiner: document.getElementById("settingContextMiner"),
   settingMaxHistory: document.getElementById("settingMaxHistory"),
   saveSettingsBtn: document.getElementById("saveSettingsBtn"),
@@ -87,12 +96,16 @@ async function loadSettings() {
     const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (raw) state.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
   }
+  applyTheme();
   syncSettingsUI();
 }
 
 async function saveSettings() {
-  state.settings.baseUrl = el.settingBaseUrl.value.trim().replace(/\/$/, "");
+  state.settings.baseUrl = el.settingBaseUrl.value.trim().replace(/\/+$/, "").replace(/\/api$/, "");
   state.settings.systemPrompt = el.settingSystemPrompt.value.trim();
+  state.settings.profile = el.settingProfile.value.trim();
+  state.settings.theme = el.settingTheme.value;
+  applyTheme();
   state.settings.contextMiner = el.settingContextMiner.checked;
   state.settings.maxHistory = parseInt(el.settingMaxHistory.value) || 20;
 
@@ -102,12 +115,15 @@ async function saveSettings() {
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(state.settings));
   }
   el.settingsModal.classList.add("hidden");
+  updateContextStats();
   await refreshModels();
 }
 
 function syncSettingsUI() {
   el.settingBaseUrl.value = state.settings.baseUrl;
   el.settingSystemPrompt.value = state.settings.systemPrompt;
+  el.settingProfile.value = state.settings.profile;
+  el.settingTheme.value = state.settings.theme;
   el.settingContextMiner.checked = state.settings.contextMiner;
   el.settingMaxHistory.value = state.settings.maxHistory;
 }
@@ -166,6 +182,99 @@ function getCurrentSession() {
   return state.sessions.find(s => s.id === state.currentSessionId) || state.sessions[0];
 }
 
+// Ollama streams one JSON object per line; calls onObject for each and throws on {"error": ...}
+async function readNdjson(response, onObject) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    // Lines can be split across network chunks; keep the incomplete tail for the next read
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const parsed = JSON.parse(line);
+      if (parsed.error) throw new Error(parsed.error);
+      onObject(parsed);
+    }
+  }
+}
+
+// Model manager (Settings): lists server models with remove buttons, and downloads new ones
+function renderModelList() {
+  el.modelList.innerHTML = "";
+  if (state.availableModels.length === 0) {
+    el.modelList.innerHTML = `<li class="model-empty">No models on the server yet.</li>`;
+    return;
+  }
+  state.availableModels.forEach(name => {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <span>${escapeHtml(name)}</span>
+      <button type="button" class="session-delete" title="Remove from server" aria-label="Remove ${escapeHtml(name)}">&times;</button>
+    `;
+    li.querySelector("button").addEventListener("click", () => deleteModel(name));
+    el.modelList.appendChild(li);
+  });
+}
+
+async function deleteModel(name) {
+  if (!confirm(`Remove "${name}" from the server?\n\nThis deletes it from the Ollama machine for everyone who uses it. You can download it again later.`)) return;
+  try {
+    const res = await fetch(`${state.settings.baseUrl}/api/delete`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: name })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text()}`);
+    el.pullStatus.textContent = `Removed ${name}.`;
+  } catch (err) {
+    el.pullStatus.textContent = `Couldn't remove ${name}: ${err.message}`;
+  }
+  await refreshModels();
+}
+
+async function pullModel() {
+  const name = el.pullModelInput.value.trim();
+  if (!name) return;
+  el.pullModelBtn.disabled = true;
+  el.pullStatus.textContent = `Starting download of ${name}…`;
+  try {
+    const res = await fetch(`${state.settings.baseUrl}/api/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: name, stream: true })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${await res.text()}`);
+    await readNdjson(res, (p) => {
+      const pct = p.total ? ` ${Math.floor((p.completed || 0) / p.total * 100)}%` : "";
+      el.pullStatus.textContent = `${name}: ${p.status}${pct}`;
+    });
+    el.pullStatus.textContent = `Downloaded ${name}. It's now in the model list.`;
+    el.pullModelInput.value = "";
+  } catch (err) {
+    el.pullStatus.textContent = `Couldn't download ${name}: ${err.message}`;
+  } finally {
+    await refreshModels();
+    el.pullModelBtn.disabled = false;
+  }
+}
+
+// Theme: "system" follows the OS live; "light"/"dark" override it
+const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+function applyTheme() {
+  const t = state.settings.theme;
+  document.documentElement.dataset.theme = t === "light" || t === "dark" ? t : (darkQuery.matches ? "dark" : "light");
+}
+darkQuery.addEventListener("change", applyTheme);
+applyTheme(); // before settings load, so dark-mode users don't see a light flash
+
 // Fetch local Ollama Models
 async function refreshModels() {
   el.statusBadge.textContent = "Connecting...";
@@ -177,16 +286,15 @@ async function refreshModels() {
     const res = await fetch(`${baseUrl}/api/tags`, { method: "GET" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    const models = data.models || [];
+    state.availableModels = (data.models || []).map(m => m.name);
 
-    if (models.length === 0) {
+    if (state.availableModels.length === 0) {
       el.modelSelect.innerHTML = `<option value="">No models on server</option>`;
       el.statusBadge.textContent = "No Models";
       el.statusBadge.className = "status-badge offline";
       return;
     }
 
-    state.availableModels = models.map(m => m.name);
     el.modelSelect.innerHTML = "";
     state.availableModels.forEach(m => {
       const opt = document.createElement("option");
@@ -206,6 +314,9 @@ async function refreshModels() {
     el.statusBadge.textContent = "Offline";
     el.statusBadge.className = "status-badge offline";
     el.modelSelect.innerHTML = `<option value="">Server offline (${err.message})</option>`;
+    state.availableModels = [];
+  } finally {
+    renderModelList();
   }
 }
 
@@ -218,8 +329,8 @@ function mineSessionContext(session) {
   const lastUserMsg = recentUserMsgs[recentUserMsgs.length - 1]?.content || "";
 
   const patterns = [
-    /(?:my name is|i am|call me)\s+([a-zA-Z0-9_\-\s]+)/i,
-    /(?:i prefer|i like|i want|prefer using|always use)\s+([^\.\n]+)/i,
+    /(?:my name is|call me)\s+([a-zA-Z0-9_\-\s]+)/i,
+    /(?:i prefer|prefer using|always use)\s+([^\.\n]+)/i,
     /(?:working on|building|creating|developing)\s+([^\.\n]+)/i,
     /(?:in python|in javascript|in go|in rust|in typescript|using\s+[a-zA-Z0-9_\-]+)/i
   ];
@@ -249,10 +360,13 @@ function updateMinedFactsBar() {
 }
 
 // Build Payload for local LLM
-function buildChatPayload(session, newPrompt) {
+function buildChatPayload(session) {
   const messagesToSend = [];
 
   let fullSystemPrompt = state.settings.systemPrompt || "";
+  if (state.settings.profile) {
+    fullSystemPrompt += `\n\n[About the user — applies to every conversation]:\n${state.settings.profile}`;
+  }
   if (session.minedFacts && session.minedFacts.length > 0) {
     fullSystemPrompt += `\n[Known context & preferences from previous exchanges]:\n- ` + session.minedFacts.join("\n- ");
   }
@@ -264,11 +378,9 @@ function buildChatPayload(session, newPrompt) {
   const maxHistory = state.settings.maxHistory || 20;
   const recentHistory = session.messages.slice(-maxHistory);
   for (const m of recentHistory) {
+    // Skip the in-flight assistant placeholder and failed replies
+    if (!m.content || m.error) continue;
     messagesToSend.push({ role: m.role, content: m.content });
-  }
-
-  if (newPrompt) {
-    messagesToSend.push({ role: "user", content: newPrompt });
   }
 
   return messagesToSend;
@@ -301,7 +413,7 @@ async function handleSendMessage(e) {
   el.promptInput.style.height = "auto";
   renderMessages();
 
-  const assistantMsgObj = { role: "assistant", content: "", timestamp: new Date().toISOString() };
+  const assistantMsgObj = { role: "assistant", content: "", model, timestamp: new Date().toISOString() };
   session.messages.push(assistantMsgObj);
 
   const assistantBubble = appendStreamingBubble();
@@ -310,9 +422,12 @@ async function handleSendMessage(e) {
   state.abortController = new AbortController();
   const payload = {
     model: model,
-    messages: buildChatPayload(session, prompt),
-    stream: true
+    messages: buildChatPayload(session),
+    stream: true,
+    // Ollama defaults to a small context window and silently truncates long chats
+    options: { num_ctx: 8192 }
   };
+  let accumulatedText = "";
 
   try {
     const baseUrl = state.settings.baseUrl;
@@ -325,46 +440,33 @@ async function handleSendMessage(e) {
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`Server returned HTTP ${response.status}: ${errText}`);
+      const hint = response.status === 403
+        ? " The server refused the request. Reload the extension in chrome://extensions; if it continues, set OLLAMA_ORIGINS=\"chrome-extension://*\" on the server."
+        : "";
+      throw new Error(`HTTP ${response.status}${errText ? `: ${errText}` : "."}${hint}`);
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let accumulatedText = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunkStr = decoder.decode(value, { stream: true });
-      const lines = chunkStr.split("\n");
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const parsed = JSON.parse(line);
-          if (parsed.error) throw new Error(parsed.error);
-          const piece = parsed.message?.content || "";
-          accumulatedText += piece;
-          assistantBubble.innerHTML = formatMarkdown(accumulatedText) + `<span class="cursor-blink"></span>`;
-          el.messagesArea.scrollTop = el.messagesArea.scrollHeight;
-        } catch (jsonErr) {}
-      }
-    }
+    await readNdjson(response, (parsed) => {
+      accumulatedText += parsed.message?.content || "";
+      assistantBubble.innerHTML = formatMarkdown(accumulatedText) + `<span class="cursor-blink"></span>`;
+      el.messagesArea.scrollTop = el.messagesArea.scrollHeight;
+    });
 
     assistantMsgObj.content = accumulatedText;
-    assistantBubble.innerHTML = formatMarkdown(accumulatedText);
   } catch (err) {
     if (err.name === "AbortError") {
-      assistantBubble.innerHTML += `<div style="color:var(--text-muted);font-size:11px;margin-top:4px;">(Stopped)</div>`;
+      assistantMsgObj.content = accumulatedText;
+      if (!accumulatedText) session.messages.pop(); // stopped before any text: drop the empty bubble
     } else {
-      assistantBubble.innerHTML = `<span style="color:var(--danger)">⚠️ Error: ${err.message}</span>`;
-      assistantMsgObj.content = `[Error: ${err.message}]`;
+      assistantMsgObj.content = err.message;
+      assistantMsgObj.error = true;
+      userMessage.error = true; // don't resend a prompt that never got an answer
     }
   } finally {
     setStreamingState(false);
+    // Re-render so the finished reply gets its model/time label and any error styling
+    renderMessages();
     await persistSessions();
-    el.messagesArea.scrollTop = el.messagesArea.scrollHeight;
   }
 }
 
@@ -426,12 +528,24 @@ function renderMessages() {
 
   session.messages.forEach(msg => {
     const msgDiv = document.createElement("div");
-    msgDiv.className = `message ${msg.role}`;
+    msgDiv.className = `message ${msg.role}${msg.error ? " error" : ""}`;
+    const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let body, label;
+    if (msg.role === "user") {
+      body = escapeHtml(msg.content);
+      label = msg.error ? "Not sent" : "";
+    } else if (msg.error) {
+      body = `<strong>Couldn't get a reply.</strong> ${escapeHtml(msg.content)}`;
+      label = msg.model || "";
+    } else {
+      body = formatMarkdown(msg.content);
+      label = msg.model || "";
+    }
     msgDiv.innerHTML = `
-      <div class="message-bubble">${msg.role === 'assistant' ? formatMarkdown(msg.content) : escapeHtml(msg.content)}</div>
+      <div class="message-bubble">${body}</div>
       <div class="message-meta">
-        <span>${msg.role === 'user' ? 'You' : (el.modelSelect.value || 'AI')}</span>
-        <span>${new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        ${label ? `<span>${escapeHtml(label)}</span>` : ""}
+        <span>${time}</span>
       </div>
     `;
     el.messagesArea.appendChild(msgDiv);
@@ -452,17 +566,42 @@ function appendStreamingBubble() {
   return bubble;
 }
 
+// Returns "…text around the first match…" from the chat's messages, or "" if only the title matches
+function searchSnippet(session, q) {
+  const msg = session.messages.find(m => !m.error && m.content && m.content.toLowerCase().includes(q));
+  if (!msg) return "";
+  const i = msg.content.toLowerCase().indexOf(q);
+  const start = Math.max(0, i - 25);
+  return (start > 0 ? "…" : "") + msg.content.slice(start, i + q.length + 35).replace(/\s+/g, " ") + "…";
+}
+
 function renderSessionList() {
   el.sessionList.innerHTML = "";
-  state.sessions.forEach(s => {
+  const q = el.sessionSearch.value.trim().toLowerCase();
+  const shown = q
+    ? state.sessions.filter(s => s.title.toLowerCase().includes(q) || searchSnippet(s, q))
+    : state.sessions;
+  if (shown.length === 0) {
+    el.sessionList.innerHTML = `<div class="session-empty">No chats match "${escapeHtml(el.sessionSearch.value.trim())}".</div>`;
+    return;
+  }
+  shown.forEach(s => {
     const item = document.createElement("div");
     item.className = `session-item ${s.id === state.currentSessionId ? 'active' : ''}`;
+    // Date + message count tell apart chats that share a title (e.g. several "hy")
+    const when = new Date(s.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const count = s.messages.filter(m => !m.error).length;
+    const snippet = q && !s.title.toLowerCase().includes(q) ? searchSnippet(s, q) : "";
     item.innerHTML = `
-      <span class="session-title" title="${escapeHtml(s.title)}">${escapeHtml(s.title)}</span>
-      <span class="session-delete" title="Delete chat">&times;</span>
+      <button type="button" class="session-open" title="${escapeHtml(s.title)}">
+        <span class="session-title">${escapeHtml(s.title)}</span>
+        ${snippet ? `<span class="session-snippet">${escapeHtml(snippet)}</span>` : ""}
+        <span class="session-meta">${when} · ${count} msg${count === 1 ? "" : "s"}</span>
+      </button>
+      <button type="button" class="session-delete" title="Delete chat" aria-label="Delete chat">&times;</button>
     `;
 
-    item.querySelector(".session-title").addEventListener("click", () => {
+    item.querySelector(".session-open").addEventListener("click", () => {
       state.currentSessionId = s.id;
       persistSessions();
       renderCurrentSession();
@@ -492,10 +631,13 @@ function deleteSession(id) {
 function updateContextStats() {
   const session = getCurrentSession();
   if (!session) return;
-  const count = session.messages.length;
-  const charCount = session.messages.reduce((acc, m) => acc + (m.content ? m.content.length : 0), 0);
+  // Count what the model will actually receive, not every bubble on screen
+  const sent = buildChatPayload(session);
+  const count = sent.filter(m => m.role !== "system").length;
+  const charCount = sent.reduce((acc, m) => acc + m.content.length, 0);
   const approxTokens = Math.round(charCount / 4);
-  el.tokenCounter.textContent = `~${approxTokens} tokens (${count} msgs)`;
+  el.tokenCounter.textContent = `~${approxTokens} tokens · ${count} msg${count === 1 ? "" : "s"} in context`;
+  el.tokenCounter.title = "Messages and estimated tokens sent to the model with your next message (includes system prompt and memory facts)";
 }
 
 // Full Context Inspector & Exporter
@@ -512,7 +654,7 @@ function openContextModal() {
 
   el.modalMemoryEditor.value = (session.minedFacts || []).join("\n");
 
-  const fullPayload = buildChatPayload(session, "");
+  const fullPayload = buildChatPayload(session);
   el.rawContextDisplay.textContent = JSON.stringify(fullPayload, null, 2);
 
   el.contextModal.classList.remove("hidden");
@@ -561,7 +703,10 @@ function setupEventListeners() {
   el.newChatBtn.addEventListener("click", () => createNewSession(true));
 
   el.toggleSidebarBtn.addEventListener("click", () => el.sidebar.classList.toggle("hidden"));
+  el.sessionSearch.addEventListener("input", renderSessionList);
   el.closeSidebarBtn.addEventListener("click", () => el.sidebar.classList.add("hidden"));
+  // Clicking the chat behind the open drawer closes it
+  el.messagesArea.addEventListener("click", () => el.sidebar.classList.add("hidden"));
   el.clearAllHistoryBtn.addEventListener("click", () => {
     if (confirm("Delete all chat sessions?")) {
       state.sessions = [];
@@ -588,6 +733,10 @@ function setupEventListeners() {
     el.settingsModal.classList.remove("hidden");
   });
   el.saveSettingsBtn.addEventListener("click", saveSettings);
+  el.pullModelBtn.addEventListener("click", pullModel);
+  el.pullModelInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") pullModel();
+  });
 
   el.exportContextBtn.addEventListener("click", openContextModal);
   el.editMemoryBtn.addEventListener("click", openContextModal);
@@ -603,6 +752,13 @@ function setupEventListeners() {
 
   el.downloadJsonBtn.addEventListener("click", () => downloadSession("json"));
   el.downloadMdBtn.addEventListener("click", () => downloadSession("md"));
+  document.getElementById("copyProfilePromptBtn").addEventListener("click", (e) => {
+    const btn = e.currentTarget;
+    navigator.clipboard.writeText(document.getElementById("profilePromptText").textContent).then(() => {
+      btn.textContent = "Copied!";
+      setTimeout(() => btn.textContent = "📋 Copy prompt", 1500);
+    });
+  });
   el.copyContextBtn.addEventListener("click", () => {
     const text = el.rawContextDisplay.textContent;
     navigator.clipboard.writeText(text).then(() => {
