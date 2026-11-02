@@ -47,7 +47,9 @@ const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); c
   page.on("request", r => { if (r.url().endsWith("/api/chat")) chatRequests.push(JSON.parse(r.postData())); });
   const chatResponses = [];
   page.on("response", r => { if (r.url().endsWith("/api/chat")) chatResponses.push(r.status()); });
-  const waitForReply = () => page.waitForFunction(() => !document.getElementById("stopBtn").offsetParent, null, { timeout: 180000 });
+  // The mock answers in under a second, so fail fast there; real models can take minutes
+  const limit = (ms) => mock ? Math.min(ms, 10000) : ms;
+  const waitForReply = () => page.waitForFunction(() => !document.getElementById("stopBtn").offsetParent, null, { timeout: limit(180000) });
 
   await page.goto(`chrome-extension://${id}/sidepanel.html`);
   await page.waitForFunction(() => document.getElementById("statusBadge").textContent !== "Connecting...", null, { timeout: 15000 });
@@ -272,7 +274,7 @@ const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); c
   check("Settings lists server models", models.every(m => listed.includes(m)), listed.join(", "));
   await page.fill("#pullModelInput", "no-such-model-xyz-123");
   await page.click("#pullModelBtn");
-  await page.waitForFunction(() => !document.getElementById("pullModelBtn").disabled, null, { timeout: 60000 });
+  await page.waitForFunction(() => !document.getElementById("pullModelBtn").disabled, null, { timeout: limit(60000) });
   check("bad model name shows an error", (await page.textContent("#pullStatus")).startsWith("Couldn't download"), await page.textContent("#pullStatus"));
 
   const TEST_MODEL = "all-minilm:latest";
@@ -285,7 +287,7 @@ const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); c
     await page.click("#pullModelBtn");
     await page.waitForTimeout(50);
     check("download disables button while running", await page.isDisabled("#pullModelBtn"), await page.textContent("#pullStatus"));
-    await page.waitForFunction(() => !document.getElementById("pullModelBtn").disabled, null, { timeout: 300000 });
+    await page.waitForFunction(() => !document.getElementById("pullModelBtn").disabled, null, { timeout: limit(300000) });
     check("download finishes", (await page.textContent("#pullStatus")).startsWith("Downloaded"), await page.textContent("#pullStatus"));
     const after = await page.$$eval("#modelList li span", s => s.map(x => x.textContent));
     check("downloaded model appears in list", after.includes(TEST_MODEL), after.join(", "));
@@ -298,7 +300,7 @@ const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); c
     check("cancelling remove keeps the model", (await page.$$eval("#modelList li span", s => s.map(x => x.textContent))).includes(TEST_MODEL));
     page.once("dialog", d => d.accept());
     await page.click(removeBtn);
-    await page.waitForFunction(m => ![...document.querySelectorAll("#modelList li span")].some(s => s.textContent === m), TEST_MODEL, { timeout: 30000 });
+    await page.waitForFunction(m => ![...document.querySelectorAll("#modelList li span")].some(s => s.textContent === m), TEST_MODEL, { timeout: limit(30000) });
     const final = await page.$$eval("#modelList li span", s => s.map(x => x.textContent));
     check("remove deletes it from server", !final.includes(TEST_MODEL) && models.every(m => final.includes(m)), final.join(", "));
   }
