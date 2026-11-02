@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LocalMind Side Panel</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div id="app" class="app-container">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-orb"></div>
+        <div class="brand-text">
+          <h1>LocalMind</h1>
+          <span class="status-badge" id="statusBadge">Connecting...</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="toggleSidebarBtn" class="icon-btn" title="Chat History">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+        </button>
+        <button id="exportContextBtn" class="icon-btn" title="Inspect & Export Context">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button id="openSettingsBtn" class="icon-btn" title="Settings">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Model & Control Bar -->
+    <div class="control-bar">
+      <div class="select-wrapper">
+        <select id="modelSelect">
+          <option value="">Loading models...</option>
+        </select>
+      </div>
+      <button id="refreshModelsBtn" class="refresh-btn" title="Refresh local models">↻</button>
+      <button id="newChatBtn" class="btn secondary-btn" title="Start new chat">+ New</button>
+    </div>
+
+    <!-- Workspace -->
+    <div class="workspace">
+      <!-- Drawer for chat history -->
+      <aside id="sidebar" class="sidebar hidden">
+        <div class="sidebar-header">
+          <h3>Chat Sessions</h3>
+          <button id="closeSidebarBtn" class="close-btn">&times;</button>
+        </div>
+        <div id="sessionList" class="session-list"></div>
+        <div class="sidebar-footer">
+          <button id="clearAllHistoryBtn" class="btn text-danger">Clear All History</button>
+        </div>
+      </aside>
+
+      <!-- Main Chat Area -->
+      <main class="chat-container">
+        <!-- Mined Facts Bar -->
+        <div id="minedFactsBar" class="mined-facts-bar hidden">
+          <span class="facts-label">🧠 Session Memory:</span>
+          <span id="factsPreview" class="facts-preview"></span>
+          <button id="editMemoryBtn" class="edit-mem-btn" title="Edit memory facts">Edit</button>
+        </div>
+
+        <div id="messagesArea" class="messages-area">
+          <div class="welcome-card" id="welcomeCard">
+            <div class="welcome-icon">⚡</div>
+            <h2>Local LLM Side Panel</h2>
+            <p>Direct Ollama & LM Studio connection from your browser side tab. Context is securely kept in your local storage.</p>
+            <div class="quick-tips">
+              <span>• Zero cloud tracking, runs on your machine</span>
+              <span>• Auto-mines previous context for smarter prompts</span>
+              <span>• Export full session context anytime</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input Bar -->
+        <footer class="input-container">
+          <form id="chatForm">
+            <textarea id="promptInput" rows="1" placeholder="Ask your local LLM... (Shift+Enter for newline)" autofocus></textarea>
+            <div class="form-actions">
+              <span id="tokenCounter" class="token-counter">0 tokens</span>
+              <button type="submit" id="sendBtn" class="send-btn" title="Send message">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+              <button type="button" id="stopBtn" class="stop-btn hidden" title="Stop streaming">
+                <span class="stop-icon"></span>
+              </button>
+            </div>
+          </form>
+        </footer>
+      </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal-backdrop hidden">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Server & Model Settings</h2>
+          <button class="modal-close" data-close="settingsModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <label>
+            <span>Ollama / Local LLM Base URL</span>
+            <input type="text" id="settingBaseUrl" placeholder="http://192.168.0.13:11434" value="http://192.168.0.13:11434">
+            <small>Default from your ask_llm.py is <code>http://192.168.0.13:11434</code> (or <code>http://127.0.0.1:11434</code>).</small>
+          </label>
+
+          <label>
+            <span>System Prompt / Assistant Persona</span>
+            <textarea id="settingSystemPrompt" rows="3" placeholder="You are a helpful AI assistant."></textarea>
+          </label>
+
+          <label>
+            <span>Auto-Memory Context Miner</span>
+            <div class="toggle-container">
+              <input type="checkbox" id="settingContextMiner" checked>
+              <span>Auto-mine user preferences and key details into session memory</span>
+            </div>
+          </label>
+
+          <label>
+            <span>Max History Messages in Prompt</span>
+            <input type="number" id="settingMaxHistory" min="2" max="100" value="20">
+            <small>Controls how many previous turns are sent to the local model.</small>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button class="btn secondary-btn" data-close="settingsModal">Cancel</button>
+          <button id="saveSettingsBtn" class="btn primary-btn">Save Settings</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Context Inspector & Export Modal -->
+    <div id="contextModal" class="modal-backdrop hidden">
+      <div class="modal large-modal">
+        <div class="modal-header">
+          <h2>Context Inspector & Export</h2>
+          <button class="modal-close" data-close="contextModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">Review exact memory and history sent to your model:</p>
+          <div class="context-stats">
+            <span id="statMessageCount">0 Messages</span>
+            <span id="statEstTokens">0 Approx Tokens</span>
+            <span id="statModel">Model: None</span>
+          </div>
+
+          <label>
+            <span>Session Memory / Mined Facts</span>
+            <textarea id="modalMemoryEditor" rows="3" placeholder="No mined facts yet."></textarea>
+          </label>
+
+          <label>
+            <span>Full Conversation Raw Context</span>
+            <pre id="rawContextDisplay" class="code-preview"></pre>
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button id="downloadJsonBtn" class="btn secondary-btn">📥 JSON</button>
+          <button id="downloadMdBtn" class="btn secondary-btn">📄 Markdown</button>
+          <button id="copyContextBtn" class="btn primary-btn">📋 Copy Context</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
