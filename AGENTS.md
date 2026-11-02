@@ -1,92 +1,48 @@
-# AGENTS.md - LocalMind Side Panel
+# AGENTS.md - LocalMind
 
-Guidelines and architecture instructions for AI coding agents and human developers maintaining and extending the **LocalMind** browser extension.
+Instructions for AI coding agents (and humans) working on **LocalMind**, a Manifest V3 Chrome side panel extension for chatting with Ollama models on the user's machine or local network.
 
----
+Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before changing code. It has diagrams of the components, the message flow, the prompt sent to the model and the stored data. [CONTRIBUTING.md](CONTRIBUTING.md) has the setup and guidelines.
 
-## 1. Project Overview & Architecture
-
-**LocalMind** is a Manifest V3 native Chrome / Chromium browser extension that renders inside the browser's native **Side Panel**. It provides an interface to chat with locally hosted Large Language Models (LLMs) such as Ollama or LM Studio, complete with session memory mining and prompt inspection/export.
-
-### Key Architectural Pillars:
-1. **Manifest V3 Native Side Panel**: Uses the `chrome.sidePanel` API to dock seamlessly on the right side of any active web tab.
-2. **Local / LAN Model Connectivity**: Streams completions directly over HTTP (`/api/chat` for Ollama or `/v1/chat/completions` for OpenAI-compatible endpoints) without relaying data to cloud servers.
-3. **Session Memory Miner**: Automatically extracts key persistent facts (user preferences, task context, constraints) across conversation turns and includes them in the system prompt.
-4. **Context Transparency & Export**: Users can inspect the exact context payload, token breakdown, and export conversation records as Markdown or JSON.
-5. **Zero External Build Step / Vanilla Stack**: Uses standard HTML5, CSS3, and modern ES6 JavaScript. No bundling or transpilation step is required to run or reload.
-
----
-
-## 2. Directory Structure
+## Layout
 
 ```
-/Users/rahul/tools/local-llm-sidepanel/
-├── manifest.json       # Manifest V3 configuration (permissions, side_panel, host permissions)
-├── background.js       # Background service worker (toolbar click handler -> sidePanel.open)
-├── sidepanel.html      # Side panel markup (header, chat messages, memory bar, input area, modals)
-├── sidepanel.css       # Complete dark-mode design system with variables, animations, responsive layout
-├── sidepanel.js        # Core logic: LLM streaming client, memory miner, session storage, UI listeners
-├── icons/              # Extension icons (icon16.png, icon48.png, icon128.png)
-├── lib/                # Optional standalone helper scripts or dependencies
-├── README.md           # User installation, configuration, and feature guide
-└── AGENTS.md           # Agent guidelines, code conventions, and maintenance protocols
+manifest.json        MV3 manifest: sidePanel, storage, declarativeNetRequestWithHostAccess; host access http(s)://*/*
+background.js        Opens the panel on toolbar click; DNR rule that strips Origin from this extension's requests
+sidepanel.html       Markup (header, model bar, history drawer + search, messages, input, Settings, Context Inspector)
+sidepanel.css        Tokens on :root (light) and :root[data-theme="dark"], then components
+sidepanel.js         All app logic (state, storage, Ollama client, readNdjson, buildChatPayload, miner, model manager, theme)
+icons/               icon.svg (source) + icon16/48/128.png
+build.sh             node --check, manifest check, writes dist/localmind/ and dist/localmind.zip
+tests/e2e.cjs        Playwright test that drives the built extension
+tests/mock-ollama.cjs  Fake Ollama API; returns 403 when an Origin header is present, like real Ollama
+docs/                USER_GUIDE.md (shipped in the build), ARCHITECTURE.md, images/
 ```
 
----
+## Commands
 
-## 3. Core Modules & Responsibilities
+```sh
+./build.sh                                  # or npm run build
+npm test                                    # build + e2e against the mock (what CI runs)
+OLLAMA_URL=http://host:11434 npm test       # e2e against a real server
+OLLAMA_URL=… E2E_PULL=1 npm test            # also download/remove all-minilm on that server
+```
 
-### `manifest.json`
-- Permissions: `sidePanel`, `storage`, `tabs`.
-- Host permissions: `http://localhost/*`, `http://127.0.0.1/*`, `http://192.168.*/*`, `http://10.*/*`, `*://*/*`.
-- Action config: Automatically registers click behavior.
-- Background worker: `background.js`.
+Playwright needs Node 20+ (`.nvmrc` = 22). Debug the panel with right-click → Inspect.
 
-### `background.js`
-- Sets side panel open behavior:
-  ```js
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-  ```
-- Handles fallback toolbar action events.
+## Rules
 
-### `sidepanel.js`
-- **State Management**: Holds `settings`, `sessions`, `currentSessionId`, `availableModels`, `isStreaming`, and `abortController`.
-- **Model Discovery**: Queries `${baseUrl}/api/tags` to populate the model picker.
-- **Streaming Pipeline**: Uses `fetch()` with `ReadableStream` (`response.body.getReader()`) to parse NDJSON chunks line by line in real time.
-- **Memory Miner**: Analyzes incoming messages using rule-based pattern matching (e.g., `"my name is"`, `"prefer"`, `"working on"`, `"remember"`, `"goal is"`) and deduplicates facts stored in session metadata.
-- **Context Inspector**: Constructs the exact payload sent to the model and computes approximate token usage based on character/word heuristic (1 token ≈ 4 characters).
-- **Export Engine**: Exports active session or full context to `.json` or `.md`.
+1. **No build step, no runtime dependencies.** Plain HTML/CSS/JS loaded directly by Chrome. Dev-only tools are fine.
+2. **Privacy.** Only contact the user's configured Ollama server. No telemetry, CDNs or remote fonts. Data stays in `chrome.storage.local`.
+3. **Escape everything rendered.** Use `escapeHtml()` or `textContent` for user, model and server text; `formatMarkdown()` escapes before formatting.
+4. **Styling.** Use the CSS custom properties. Add every new colour to both the light and the dark token blocks. Check the panel at 360 px wide.
+5. **Context correctness.** `buildChatPayload()` is the single source of what the model receives (and of the token counter). Messages flagged `error` and empty placeholders must stay out of it.
+6. **Ollama API.** Streaming endpoints (`/api/chat`, `/api/pull`) go through `readNdjson()`. Keep `tests/mock-ollama.cjs` in step with the real API.
+7. **Destructive actions** (deleting models from the server) must ask for confirmation.
+8. **Tests.** Add a `check(...)` to `tests/e2e.cjs` for new behaviour, and run `npm test` before finishing. Update `CHANGELOG.md` under Unreleased.
 
----
+## Gotchas
 
-## 4. Coding Standards & Guidelines
-
-1. **No Unnecessary External Dependencies**:
-   - Maintain native browser compatibility without npm build steps.
-   - Do not introduce heavy bundling frameworks unless explicitly requested by the user.
-
-2. **Error Handling & Resilience**:
-   - Always catch connection errors gracefully (e.g., when the local Ollama daemon is paused or unreachable).
-   - Display informative status indicators (`Connected`, `Connecting...`, `Disconnected (Ollama offline?)`).
-
-3. **CORS & Local Network Considerations**:
-   - When connecting to remote LAN hosts (e.g., `http://192.168.0.x:11434`), ensure Ollama has `OLLAMA_ORIGINS="*"` or includes Chrome extension origins `chrome-extension://*`.
-
-4. **Preserve User Privacy**:
-   - All session data, system prompts, and conversation transcripts must remain in `chrome.storage.local`.
-   - Never send telemetry or conversation contents to external cloud endpoints.
-
-5. **CSS / UI Styling Rules**:
-   - Stick to CSS Custom Properties defined in `:root` inside `sidepanel.css`.
-   - Ensure high contrast in dark mode, clear hover feedback, and smooth transitions for all interactive elements.
-
----
-
-## 5. Development & Testing Workflow
-
-1. **Reloading After Changes**:
-   - Code changes in `sidepanel.html`, `sidepanel.css`, or `sidepanel.js` can be refreshed by right-clicking inside the side panel and choosing **Inspect**, then pressing `Cmd+R` / `Ctrl+R`.
-   - Manifest or `background.js` modifications require reloading the extension from `chrome://extensions/`.
-
-2. **Debugging**:
-   - Open Developer Tools on the side panel by right-clicking anywhere in the panel and selecting **Inspect**.
+- Chrome sends `Origin: chrome-extension://…` on POST/DELETE, and Ollama answers 403 unless the rule in `background.js` strips it. GET `/api/tags` works either way, so "models load but chat fails" means the rule isn't active. Reload the extension.
+- Unpacked extensions get an ID from their folder path, and storage is per ID. Loading a different folder means an empty chat history.
+- `manifest.json` or `background.js` changes need a reload in `chrome://extensions`. Panel-only changes need the panel reopened (or Cmd+R in its DevTools).

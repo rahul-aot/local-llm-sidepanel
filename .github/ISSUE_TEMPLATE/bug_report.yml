@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in LocalMind doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. For security problems, use the Security tab's "Report a vulnerability" instead (see SECURITY.md).
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the side panel
+        2. Choose model …
+        3. Send …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+      description: Include any error shown in the panel. Errors from right-click → Inspect → Console help a lot.
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 131 on macOS 15
+    validations:
+      required: true
+  - type: input
+    id: ollama
+    attributes:
+      label: Ollama version and model
+      description: Run `ollama --version` on the server.
+      placeholder: Ollama 0.12.3, llama3.2
+    validations:
+      required: true
+  - type: dropdown
+    id: server
+    attributes:
+      label: Where does Ollama run?
+      options:
+        - Same computer (localhost)
+        - Another machine on my network
+        - Behind a reverse proxy / remote
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, LocalMind version (chrome://extensions), settings you changed.

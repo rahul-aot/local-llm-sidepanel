@@ -500,6 +500,9 @@ select:focus {
 .message.user {
   align-self: flex-end;
 }
+.message.user .message-meta {
+  justify-content: flex-end;
+}
 .message.assistant {
   align-self: flex-start;
 }
