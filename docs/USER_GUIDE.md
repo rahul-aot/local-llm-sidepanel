@@ -91,6 +91,16 @@ When you write things like "my name is…", "I prefer…" or "I'm working on…"
 
 ---
 
+### Message actions
+
+Under each message:
+
+- **📋 Copy** copies the message text.
+- **🔁 Regenerate** (replies) asks the model again. On a failed reply it works as **Retry**.
+- **✏️ Edit** (your messages) changes your message, removes the reply after it, and gets a new one.
+
+Each reply also shows its speed, for example `105 tok/s · 240ms to first token`.
+
 ## 5. Settings
 
 | Setting | What it does |
@@ -98,6 +108,7 @@ When you write things like "my name is…", "I prefer…" or "I'm working on…"
 | Base URL | Address of your Ollama server. |
 | System Prompt | Standing instructions for the model, such as tone or role. |
 | About You | Facts about you that every chat should know. |
+| Temperature | How varied replies are: lower is focused and repeatable, higher is more creative (default 0.8). |
 | Theme | **Light** (default), **Dark**, or **Match system** (follows your computer's light/dark mode). |
 | Models on Server | See, download and remove models (below). |
 

@@ -5,7 +5,7 @@ Planned features, in build order. Each batch ships with tests and doc updates.
 ## Batch 1: Rendering and message actions
 
 - [ ] **Markdown rendering + copy-code button**: render lists, tables, headings, quotes and code blocks. Bundle a small Markdown library locally (no CDN) and keep escaping model HTML.
-- [ ] **Message actions**: Copy, Regenerate, Edit on each message.
+- [x] **Message actions**: Copy, Regenerate, Edit on each message.
 
 ## Batch 2: Side panel features
 
@@ -15,8 +15,8 @@ Planned features, in build order. Each batch ships with tests and doc updates.
 
 ## Batch 3: Tuning
 
-- [ ] **Speed stats**: show tokens/sec and time to first token under each reply (from Ollama's response timings).
-- [ ] **Temperature slider** in Settings.
+- [x] **Speed stats**: show tokens/sec and time to first token under each reply (from Ollama's response timings).
+- [x] **Temperature slider** in Settings.
 
 ## Later
 

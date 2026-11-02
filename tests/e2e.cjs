@@ -317,7 +317,8 @@ const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); c
   check("only user messages get an Edit button", (await page.$$(".message.user .msg-action[data-action='edit']")).length === 1 && (await page.$$(".message.assistant .msg-action[data-action='edit']")).length === 0);
   check("only assistant messages get a Regenerate button", (await page.$$(".message.assistant .msg-action[data-action='regenerate']")).length === 1 && (await page.$$(".message.user .msg-action[data-action='regenerate']")).length === 0);
 
-  const assistantReplyText = await page.$eval(".message.assistant:last-child .message-bubble", e => e.textContent.trim());
+  // Stored text, not the bubble's textContent: rendering turns newlines into <br>, which textContent drops
+  const assistantReplyText = await page.evaluate(() => getCurrentSession().messages.at(-1).content);
   await page.click(".message.assistant:last-child .msg-action[data-action='copy']");
   await page.waitForTimeout(100);
   check("Copy puts the raw reply text on the clipboard", (await page.evaluate(() => window.__clip)) === assistantReplyText, assistantReplyText.slice(0, 60));
