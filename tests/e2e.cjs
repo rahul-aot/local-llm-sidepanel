@@ -114,6 +114,7 @@ const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); c
   check("first request: system + 1 user, prompt not duplicated", p1.length === 2 && p1[1].role === "user", p1.map(m => m.role).join(","));
   check("memory fact mined", (await page.isVisible("#minedFactsBar")) && (await page.textContent("#factsPreview")).includes("Rahul"), await page.textContent("#factsPreview"));
   check("counter counts sent msgs", (await page.textContent("#tokenCounter")).includes("2 msgs"), await page.textContent("#tokenCounter"));
+  check("reply shows speed stats", /\d+(\.\d+)? tok\/s · \d+ms to first token/.test(label1), label1.trim().replace(/\s+/g, " "));
 
   // Chat round 2: history is sent once, in order
   await page.fill("#promptInput", "What is my name? One word.");
@@ -163,6 +164,19 @@ const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); c
   const pAsk = chatRequests[chatRequests.length - 1].messages.at(-1).content;
   check("right-click Ask sends the selection with its action", pAsk === "Explain this:\n\nphotosynthesis", JSON.stringify(pAsk));
   check("right-click request is cleared after sending", !(await sw.evaluate(() => chrome.storage.session.get("pendingAsk"))).pendingAsk);
+
+  // Temperature slider: live display updates, and the value reaches the next request
+  await page.click("#openSettingsBtn");
+  await page.$eval("#settingTemperature", (elm) => { elm.value = "0.2"; elm.dispatchEvent(new Event("input", { bubbles: true })); });
+  check("temperature display updates live while dragging", (await page.textContent("#temperatureValue")) === "0.2");
+  await page.click("#saveSettingsBtn");
+  await page.waitForTimeout(200);
+  await page.fill("#promptInput", "Say OK.");
+  await page.press("#promptInput", "Enter");
+  await page.waitForTimeout(300);
+  await waitForReply();
+  const tempSent = chatRequests[chatRequests.length - 1].options?.temperature;
+  check("temperature setting reaches the model request", tempSent === 0.2, `options.temperature=${tempSent}`);
 
   // New chat: About You carries over, per-chat facts don't
   await page.click("#newChatBtn");
@@ -289,6 +303,43 @@ const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); c
     check("remove deletes it from server", !final.includes(TEST_MODEL) && models.every(m => final.includes(m)), final.join(", "));
   }
   await page.click('#settingsModal [data-close="settingsModal"] >> nth=0');
+
+  // Message actions: Copy, Edit, Regenerate (in a fresh chat so earlier session-count checks are unaffected)
+  // The page reloads above drop the earlier clipboard shim, so it's reapplied here.
+  await page.evaluate(() => { navigator.clipboard.writeText = async t => { window.__clip = t; }; });
+  await page.click("#newChatBtn");
+  await page.fill("#promptInput", "Say the word blue.");
+  await page.press("#promptInput", "Enter");
+  await page.waitForTimeout(300);
+  await waitForReply();
+  check("only user messages get an Edit button", (await page.$$(".message.user .msg-action[data-action='edit']")).length === 1 && (await page.$$(".message.assistant .msg-action[data-action='edit']")).length === 0);
+  check("only assistant messages get a Regenerate button", (await page.$$(".message.assistant .msg-action[data-action='regenerate']")).length === 1 && (await page.$$(".message.user .msg-action[data-action='regenerate']")).length === 0);
+
+  const assistantReplyText = await page.$eval(".message.assistant:last-child .message-bubble", e => e.textContent.trim());
+  await page.click(".message.assistant:last-child .msg-action[data-action='copy']");
+  await page.waitForTimeout(100);
+  check("Copy puts the raw reply text on the clipboard", (await page.evaluate(() => window.__clip)) === assistantReplyText, assistantReplyText.slice(0, 60));
+  check("Copy button shows a checkmark after copying", (await page.textContent(".message.assistant:last-child .msg-action[data-action='copy']")) === "✅");
+
+  page.once("dialog", d => d.dismiss());
+  await page.click(".message.user .msg-action[data-action='edit']");
+  await page.waitForTimeout(200);
+  check("cancelling Edit leaves the message alone", (await page.$$(".message")).length === 2 && (await page.textContent(".message.user .message-bubble")) === "Say the word blue.");
+
+  page.once("dialog", d => d.accept("Say the word green."));
+  await page.click(".message.user .msg-action[data-action='edit']");
+  await page.waitForTimeout(300);
+  await waitForReply();
+  check("Edit replaces the message and regenerates the reply", (await page.$$(".message")).length === 2 && (await page.textContent(".message.user .message-bubble")) === "Say the word green.");
+  check("Edit resends with the new wording", chatRequests.at(-1).messages.at(-1).content === "Say the word green.");
+  const beforeRegenerate = await page.$eval(".message.assistant:last-child .message-bubble", e => e.textContent.trim());
+
+  await page.click(".message.assistant:last-child .msg-action[data-action='regenerate']");
+  await page.waitForTimeout(300);
+  await waitForReply();
+  check("Regenerate replaces the reply, not adds another", (await page.$$(".message")).length === 2);
+  check("Regenerate resends the same preceding message", chatRequests.at(-1).messages.at(-1).content === "Say the word green.");
+  check("Regenerate gets a fresh reply with fresh stats", (await page.textContent(".message.assistant:last-child .message-meta")).match(/\d+(\.\d+)? tok\/s/), beforeRegenerate.slice(0, 20));
 
   await page.screenshot({ path: path.join(OUT, "final.png") });
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | ").slice(0, 300));

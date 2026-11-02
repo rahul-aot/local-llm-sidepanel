@@ -16,7 +16,7 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 The extension itself needs no tools. Node 20 or newer is only needed for the tests (`.nvmrc` pins the version CI uses).
 
 ```sh
-git clone https://github.com/rahul-aot/local-llm-sidepanel.git
+git clone https://github.com/zccott/local-llm-sidepanel.git
 cd local-llm-sidepanel
 npm install
 npx playwright install chromium   # once, for the end-to-end test

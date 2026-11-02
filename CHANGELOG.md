@@ -31,5 +31,5 @@ First public release.
 - Playwright end-to-end test with a mock Ollama server, and CI.
 - User guide, architecture docs with diagrams, contributing and security policies.
 
-[Unreleased]: https://github.com/rahul-aot/local-llm-sidepanel/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/rahul-aot/local-llm-sidepanel/releases/tag/v1.0.0
+[Unreleased]: https://github.com/zccott/local-llm-sidepanel/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/zccott/local-llm-sidepanel/releases/tag/v1.0.0

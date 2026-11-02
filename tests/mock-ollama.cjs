@@ -31,7 +31,8 @@ function startMockOllama(port = 0) {
         const reply = `PONG. I received: ${messages.map(m => m.content).join(" | ")}`;
         for (const piece of reply.match(/.{1,7}/gs)) { send({ model, message: { role: "assistant", content: piece } }); await sleep(20); }
       }
-      send({ model, done: true });
+      // Fake but plausible generation timings, so the client's speed-stats code has real fields to read
+      send({ model, done: true, eval_count: 42, eval_duration: 400_000_000 });
       return res.end();
     }
 

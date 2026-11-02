@@ -14,6 +14,7 @@ const STORAGE_KEYS = {
 const DEFAULT_SETTINGS = {
   baseUrl: "http://localhost:11434",
   systemPrompt: "You are a concise, helpful local AI assistant. Keep responses clear and structured.",
+  temperature: 0.8,
   profile: "",
   theme: "light",
   contextMiner: true,
@@ -69,6 +70,8 @@ const el = {
   settingsModal: document.getElementById("settingsModal"),
   settingBaseUrl: document.getElementById("settingBaseUrl"),
   settingSystemPrompt: document.getElementById("settingSystemPrompt"),
+  settingTemperature: document.getElementById("settingTemperature"),
+  temperatureValue: document.getElementById("temperatureValue"),
   settingProfile: document.getElementById("settingProfile"),
   settingTheme: document.getElementById("settingTheme"),
   modelList: document.getElementById("modelList"),
@@ -165,6 +168,7 @@ async function loadSettings() {
 async function saveSettings() {
   state.settings.baseUrl = el.settingBaseUrl.value.trim().replace(/\/+$/, "").replace(/\/api$/, "");
   state.settings.systemPrompt = el.settingSystemPrompt.value.trim();
+  state.settings.temperature = parseFloat(el.settingTemperature.value) || 0.8;
   state.settings.profile = el.settingProfile.value.trim();
   state.settings.theme = el.settingTheme.value;
   applyTheme();
@@ -184,6 +188,8 @@ async function saveSettings() {
 function syncSettingsUI() {
   el.settingBaseUrl.value = state.settings.baseUrl;
   el.settingSystemPrompt.value = state.settings.systemPrompt;
+  el.settingTemperature.value = state.settings.temperature;
+  el.temperatureValue.textContent = state.settings.temperature;
   el.settingProfile.value = state.settings.profile;
   el.settingTheme.value = state.settings.theme;
   el.settingContextMiner.checked = state.settings.contextMiner;
@@ -448,6 +454,10 @@ function buildChatPayload(session) {
   return messagesToSend;
 }
 
+function titleFromPrompt(text) {
+  return text.slice(0, 30) + (text.length > 30 ? "..." : "");
+}
+
 // Chat Send & Live Streaming
 async function handleSendMessage(e) {
   if (e) e.preventDefault();
@@ -455,13 +465,6 @@ async function handleSendMessage(e) {
   if (!prompt || state.isStreaming) return;
 
   const session = getCurrentSession();
-  const model = el.modelSelect.value || state.selectedModel;
-
-  if (!model) {
-    alert("Please ensure your local LLM server is reachable and a model is chosen.");
-    return;
-  }
-
   const userMessage = { role: "user", content: prompt, timestamp: new Date().toISOString() };
   if (state.page) {
     userMessage.page = state.page; // stays in history, so follow-up questions still see it
@@ -471,7 +474,7 @@ async function handleSendMessage(e) {
   session.messages.push(userMessage);
 
   if (session.messages.length === 1) {
-    session.title = prompt.slice(0, 30) + (prompt.length > 30 ? "..." : "");
+    session.title = titleFromPrompt(prompt);
   }
 
   mineSessionContext(session);
@@ -480,6 +483,20 @@ async function handleSendMessage(e) {
   el.promptInput.style.height = "auto";
   renderMessages();
 
+  await generateReply(session);
+}
+
+// Streams a new assistant reply from the session's current history. Shared by a normal send and
+// by Regenerate/Edit, which first truncate the history to the point they want to redo from.
+async function generateReply(session) {
+  const model = el.modelSelect.value || state.selectedModel;
+  if (!model) {
+    alert("Please ensure your local LLM server is reachable and a model is chosen.");
+    return;
+  }
+
+  // The message this reply answers; marked .error on failure so it's excluded from future context
+  const precedingMessage = session.messages[session.messages.length - 1];
   const assistantMsgObj = { role: "assistant", content: "", model, timestamp: new Date().toISOString() };
   session.messages.push(assistantMsgObj);
 
@@ -492,9 +509,12 @@ async function handleSendMessage(e) {
     messages: buildChatPayload(session),
     stream: true,
     // Ollama defaults to a small context window and silently truncates long chats
-    options: { num_ctx: 8192 }
+    options: { num_ctx: 8192, temperature: state.settings.temperature }
   };
   let accumulatedText = "";
+  let serverTps = 0;
+  const startedAt = performance.now();
+  let firstTokenAt = 0;
 
   try {
     const baseUrl = state.settings.baseUrl;
@@ -514,9 +534,17 @@ async function handleSendMessage(e) {
     }
 
     await readNdjson(response, (parsed) => {
-      accumulatedText += parsed.message?.content || "";
-      assistantBubble.innerHTML = formatMarkdown(accumulatedText) + `<span class="cursor-blink"></span>`;
-      el.messagesArea.scrollTop = el.messagesArea.scrollHeight;
+      const piece = parsed.message?.content || "";
+      if (piece) {
+        if (!firstTokenAt) firstTokenAt = performance.now();
+        accumulatedText += piece;
+        assistantBubble.innerHTML = formatMarkdown(accumulatedText) + `<span class="cursor-blink"></span>`;
+        el.messagesArea.scrollTop = el.messagesArea.scrollHeight;
+      }
+      // Ollama reports its own generation speed on the final streamed object
+      if (parsed.done && parsed.eval_count && parsed.eval_duration) {
+        serverTps = parsed.eval_count / (parsed.eval_duration / 1e9);
+      }
     });
 
     assistantMsgObj.content = accumulatedText;
@@ -527,14 +555,58 @@ async function handleSendMessage(e) {
     } else {
       assistantMsgObj.content = err.message;
       assistantMsgObj.error = true;
-      userMessage.error = true; // don't resend a prompt that never got an answer
+      if (precedingMessage?.role === "user") precedingMessage.error = true; // don't resend a prompt that never got an answer
     }
   } finally {
+    // Speed stats: Ollama's reported tok/s when available, else a rough estimate from elapsed time
+    if (!assistantMsgObj.error && accumulatedText && firstTokenAt) {
+      const seconds = (performance.now() - firstTokenAt) / 1000;
+      const estTokens = Math.max(1, Math.round(accumulatedText.length / 4));
+      const tps = serverTps || (seconds > 0 ? estTokens / seconds : 0);
+      assistantMsgObj.stats = { tps: Math.round(tps * 10) / 10, ttftMs: Math.round(firstTokenAt - startedAt) };
+    }
     setStreamingState(false);
-    // Re-render so the finished reply gets its model/time label and any error styling
+    // Re-render so the finished reply gets its model/time label, stats and any error styling
     renderMessages();
     await persistSessions();
   }
+}
+
+// Message actions: Copy (any message), Regenerate (assistant), Edit (user)
+function copyMessage(index, btn) {
+  const session = getCurrentSession();
+  const msg = session.messages[index];
+  navigator.clipboard.writeText(msg.content).then(() => {
+    const original = btn.textContent;
+    btn.textContent = "✅";
+    setTimeout(() => { btn.textContent = original; }, 1200);
+  });
+}
+
+async function regenerateMessage(index) {
+  if (state.isStreaming) return;
+  const session = getCurrentSession();
+  session.messages.splice(index); // drop this reply and anything after it
+  const prev = session.messages[session.messages.length - 1];
+  if (prev) delete prev.error; // retrying a failed reply: let its prompt back into context
+  renderMessages();
+  await generateReply(session);
+}
+
+async function editMessage(index) {
+  if (state.isStreaming) return;
+  const session = getCurrentSession();
+  const msg = session.messages[index];
+  const next = prompt("Edit your message:", msg.content);
+  if (next === null) return; // cancelled
+  const trimmed = next.trim();
+  if (!trimmed) return;
+  msg.content = trimmed;
+  delete msg.error;
+  session.messages.splice(index + 1); // drop the old reply and anything after
+  if (index === 0) session.title = titleFromPrompt(trimmed);
+  renderMessages();
+  await generateReply(session);
 }
 
 function setStreamingState(streaming) {
@@ -593,9 +665,10 @@ function renderMessages() {
     return;
   }
 
-  session.messages.forEach(msg => {
+  session.messages.forEach((msg, index) => {
     const msgDiv = document.createElement("div");
     msgDiv.className = `message ${msg.role}${msg.error ? " error" : ""}`;
+    msgDiv.dataset.index = index;
     const time = new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     let body, label;
     if (msg.role === "user") {
@@ -608,10 +681,16 @@ function renderMessages() {
       body = formatMarkdown(msg.content);
       label = msg.model || "";
     }
+    const stats = msg.stats ? `<span class="meta-stats">${msg.stats.tps} tok/s · ${msg.stats.ttftMs}ms to first token</span>` : "";
+    const actions = [`<button type="button" class="msg-action" data-action="copy" title="Copy">📋</button>`];
+    if (msg.role === "assistant") actions.push(`<button type="button" class="msg-action" data-action="regenerate" title="Regenerate">🔁</button>`);
+    if (msg.role === "user") actions.push(`<button type="button" class="msg-action" data-action="edit" title="Edit">✏️</button>`);
     msgDiv.innerHTML = `
       <div class="message-bubble">${body}</div>
       <div class="message-meta">
         ${label ? `<span>${escapeHtml(label)}</span>` : ""}
+        ${stats}
+        <span class="meta-actions">${actions.join("")}</span>
         <span>${time}</span>
       </div>
     `;
@@ -772,8 +851,16 @@ function setupEventListeners() {
   el.toggleSidebarBtn.addEventListener("click", () => el.sidebar.classList.toggle("hidden"));
   el.sessionSearch.addEventListener("input", renderSessionList);
   el.closeSidebarBtn.addEventListener("click", () => el.sidebar.classList.add("hidden"));
-  // Clicking the chat behind the open drawer closes it
-  el.messagesArea.addEventListener("click", () => el.sidebar.classList.add("hidden"));
+  // Clicking the chat behind the open drawer closes it; clicking a message action runs it
+  el.messagesArea.addEventListener("click", (e) => {
+    el.sidebar.classList.add("hidden");
+    const btn = e.target.closest(".msg-action");
+    if (!btn) return;
+    const index = Number(btn.closest(".message").dataset.index);
+    if (btn.dataset.action === "copy") copyMessage(index, btn);
+    else if (btn.dataset.action === "regenerate") regenerateMessage(index);
+    else if (btn.dataset.action === "edit") editMessage(index);
+  });
   el.clearAllHistoryBtn.addEventListener("click", () => {
     if (confirm("Delete all chat sessions?")) {
       state.sessions = [];
@@ -793,6 +880,9 @@ function setupEventListeners() {
   });
 
   el.chatForm.addEventListener("submit", handleSendMessage);
+  el.settingTemperature.addEventListener("input", () => {
+    el.temperatureValue.textContent = el.settingTemperature.value;
+  });
   el.pageBtn.addEventListener("click", attachPage);
   el.removePageBtn.addEventListener("click", () => {
     state.page = null;
